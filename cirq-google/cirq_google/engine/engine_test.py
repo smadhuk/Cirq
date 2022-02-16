@@ -275,9 +275,9 @@ def test_make_random_id():
 
 
 @pytest.fixture(scope='session', autouse=True)
-def mock_grpc_client():
+def mock_grpc_client_async():
     with mock.patch(
-        'cirq_google.engine.engine_client.quantum.QuantumEngineServiceClient'
+        'cirq_google.engine.engine_client.quantum.QuantumEngineServiceAsyncClient', autospec=True
     ) as _fixture:
         yield _fixture
 
@@ -298,7 +298,7 @@ def test_create_context(client):
     assert context.copy() == context
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_create_engine(client):
     with pytest.raises(
         ValueError, match='provide context or proto_version, service_args and verbose'
@@ -320,35 +320,32 @@ def test_create_engine(client):
         ).context.proto_version
         == cg.engine.engine.ProtoVersion.V2
     )
-    assert client.called_with({'args': 'test'}, True)
+    client.assert_called_with({'args': 'test'}, True)
 
 
 def test_engine_str():
     engine = cg.Engine(
-        'proj',
-        proto_version=cg.engine.engine.ProtoVersion.V2,
-        service_args={'args': 'test'},
-        verbose=True,
+        'proj', proto_version=cg.engine.engine.ProtoVersion.V2, service_args={}, verbose=True
     )
-    assert str(engine) == 'Engine(project_id=\'proj\')'
+    assert str(engine) == "Engine(project_id='proj')"
 
 
 def setup_run_circuit_with_result_(client, result):
-    client().create_program.return_value = (
+    client().create_program_async.return_value = (
         'prog',
         quantum.QuantumProgram(name='projects/proj/programs/prog'),
     )
-    client().create_job.return_value = (
+    client().create_job_async.return_value = (
         'job-id',
         quantum.QuantumJob(
             name='projects/proj/programs/prog/jobs/job-id', execution_status={'state': 'READY'}
         ),
     )
-    client().get_job.return_value = quantum.QuantumJob(execution_status={'state': 'SUCCESS'})
-    client().get_job_results.return_value = quantum.QuantumResult(result=result)
+    client().get_job_async.return_value = quantum.QuantumJob(execution_status={'state': 'SUCCESS'})
+    client().get_job_results_async.return_value = quantum.QuantumResult(result=result)
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_circuit(client):
     setup_run_circuit_with_result_(client, _A_RESULT)
 
@@ -361,26 +358,22 @@ def test_run_circuit(client):
     assert result.params.param_dict == {'a': 1}
     assert result.measurements == {'q': np.array([[0]], dtype='uint8')}
     client.assert_called_with(service_args={'client_info': 1}, verbose=None)
-    client.create_program.called_once_with()
-    client.create_job.called_once_with(
-        'projects/project-id/programs/test',
-        quantum.QuantumJob(
-            name='projects/project-id/programs/test/jobs/job-id',
-            scheduling_config={
-                'priority': 50,
-                'processor_selector': {'processor_names': ['projects/project-id/processors/mysim']},
-            },
-            run_context=util.pack_any(
-                v2.run_context_pb2.RunContext(
-                    parameter_sweeps=[v2.run_context_pb2.ParameterSweep(repetitions=1)]
-                )
-            ),
+    client().create_program_async.assert_called_once()
+    client().create_job_async.assert_called_once_with(
+        project_id='proj',
+        program_id='prog',
+        job_id='job-id',
+        processor_ids=['mysim'],
+        run_context=util.pack_any(
+            v2.run_context_pb2.RunContext(
+                parameter_sweeps=[v2.run_context_pb2.ParameterSweep(repetitions=1)]
+            )
         ),
-        False,
+        description=None,
+        labels=None,
     )
-
-    client.get_job.called_once_with('proj', 'prog')
-    client.get_job_result.called_once_with()
+    client().get_job_async.assert_called_once_with('proj', 'prog', 'job-id', False)
+    client().get_job_results_async.assert_called_once_with('proj', 'prog', 'job-id')
 
 
 def test_no_gate_set():
@@ -394,19 +387,19 @@ def test_unsupported_program_type():
         engine.run(program="this isn't even the right type of thing!")
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_circuit_failed(client):
-    client().create_program.return_value = (
+    client().create_program_async.return_value = (
         'prog',
         quantum.QuantumProgram(name='projects/proj/programs/prog'),
     )
-    client().create_job.return_value = (
+    client().create_job_async.return_value = (
         'job-id',
         quantum.QuantumJob(
             name='projects/proj/programs/prog/jobs/job-id', execution_status={'state': 'READY'}
         ),
     )
-    client().get_job.return_value = quantum.QuantumJob(
+    client().get_job_async.return_value = quantum.QuantumJob(
         name='projects/proj/programs/prog/jobs/job-id',
         execution_status={
             'state': 'FAILURE',
@@ -424,19 +417,19 @@ def test_run_circuit_failed(client):
         engine.run(program=_CIRCUIT)
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_circuit_failed_missing_processor_name(client):
-    client().create_program.return_value = (
+    client().create_program_async.return_value = (
         'prog',
         quantum.QuantumProgram(name='projects/proj/programs/prog'),
     )
-    client().create_job.return_value = (
+    client().create_job_async.return_value = (
         'job-id',
         quantum.QuantumJob(
             name='projects/proj/programs/prog/jobs/job-id', execution_status={'state': 'READY'}
         ),
     )
-    client().get_job.return_value = quantum.QuantumJob(
+    client().get_job_async.return_value = quantum.QuantumJob(
         name='projects/proj/programs/prog/jobs/job-id',
         execution_status={
             'state': 'FAILURE',
@@ -453,19 +446,19 @@ def test_run_circuit_failed_missing_processor_name(client):
         engine.run(program=_CIRCUIT)
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_circuit_cancelled(client):
-    client().create_program.return_value = (
+    client().create_program_async.return_value = (
         'prog',
         quantum.QuantumProgram(name='projects/proj/programs/prog'),
     )
-    client().create_job.return_value = (
+    client().create_job_async.return_value = (
         'job-id',
         quantum.QuantumJob(
             name='projects/proj/programs/prog/jobs/job-id', execution_status={'state': 'READY'}
         ),
     )
-    client().get_job.return_value = quantum.QuantumJob(
+    client().get_job_async.return_value = quantum.QuantumJob(
         name='projects/proj/programs/prog/jobs/job-id', execution_status={'state': 'CANCELLED'}
     )
 
@@ -476,29 +469,28 @@ def test_run_circuit_cancelled(client):
         engine.run(program=_CIRCUIT)
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
-@mock.patch('time.sleep', return_value=None)
-def test_run_circuit_timeout(patched_time_sleep, client):
-    client().create_program.return_value = (
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
+def test_run_circuit_timeout(client):
+    client().create_program_async.return_value = (
         'prog',
         quantum.QuantumProgram(name='projects/proj/programs/prog'),
     )
-    client().create_job.return_value = (
+    client().create_job_async.return_value = (
         'job-id',
         quantum.QuantumJob(
             name='projects/proj/programs/prog/jobs/job-id', execution_status={'state': 'READY'}
         ),
     )
-    client().get_job.return_value = quantum.QuantumJob(
+    client().get_job_async.return_value = quantum.QuantumJob(
         name='projects/proj/programs/prog/jobs/job-id', execution_status={'state': 'RUNNING'}
     )
 
-    engine = cg.Engine(project_id='project-id', timeout=600)
-    with pytest.raises(RuntimeError, match='Timed out'):
+    engine = cg.Engine(project_id='project-id', timeout=1)
+    with pytest.raises(TimeoutError):
         engine.run(program=_CIRCUIT)
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_sweep_params(client):
     setup_run_circuit_with_result_(client, _RESULTS)
 
@@ -513,21 +505,21 @@ def test_run_sweep_params(client):
         assert results[i].params.param_dict == {'a': v}
         assert results[i].measurements == {'q': np.array([[0]], dtype='uint8')}
 
-    client().create_program.assert_called_once()
-    client().create_job.assert_called_once()
+    client().create_program_async.assert_called_once()
+    client().create_job_async.assert_called_once()
 
     run_context = v2.run_context_pb2.RunContext()
-    client().create_job.call_args[1]['run_context'].Unpack(run_context)
+    client().create_job_async.call_args[1]['run_context'].Unpack(run_context)
     sweeps = run_context.parameter_sweeps
     assert len(sweeps) == 2
     for i, v in enumerate([1.0, 2.0]):
         assert sweeps[i].repetitions == 1
         assert sweeps[i].sweep.sweep_function.sweeps[0].single_sweep.points.points == [v]
-    client().get_job.assert_called_once()
-    client().get_job_results.assert_called_once()
+    client().get_job_async.assert_called_once()
+    client().get_job_results_async.assert_called_once()
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_multiple_times(client):
     setup_run_circuit_with_result_(client, _RESULTS)
 
@@ -535,10 +527,10 @@ def test_run_multiple_times(client):
     program = engine.create_program(program=_CIRCUIT)
     program.run(param_resolver=cirq.ParamResolver({'a': 1}))
     run_context = v2.run_context_pb2.RunContext()
-    client().create_job.call_args[1]['run_context'].Unpack(run_context)
+    client().create_job_async.call_args[1]['run_context'].Unpack(run_context)
     sweeps1 = run_context.parameter_sweeps
     job2 = program.run_sweep(repetitions=2, params=cirq.Points('a', [3, 4]))
-    client().create_job.call_args[1]['run_context'].Unpack(run_context)
+    client().create_job_async.call_args[1]['run_context'].Unpack(run_context)
     sweeps2 = run_context.parameter_sweeps
     results = job2.results()
     assert engine.context.proto_version == cg.engine.engine.ProtoVersion.V2
@@ -554,11 +546,11 @@ def test_run_multiple_times(client):
     assert len(sweeps2) == 1
     assert sweeps2[0].repetitions == 2
     assert sweeps2[0].sweep.single_sweep.points.points == [3, 4]
-    assert client().get_job.call_count == 2
-    assert client().get_job_results.call_count == 2
+    assert client().get_job_async.call_count == 2
+    assert client().get_job_results_async.call_count == 2
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_sweep_v2(client):
     setup_run_circuit_with_result_(client, _RESULTS_V2)
 
@@ -570,19 +562,19 @@ def test_run_sweep_v2(client):
         assert results[i].repetitions == 1
         assert results[i].params.param_dict == {'a': v}
         assert results[i].measurements == {'q': np.array([[0]], dtype='uint8')}
-    client().create_program.assert_called_once()
-    client().create_job.assert_called_once()
+    client().create_program_async.assert_called_once()
+    client().create_job_async.assert_called_once()
     run_context = v2.run_context_pb2.RunContext()
-    client().create_job.call_args[1]['run_context'].Unpack(run_context)
+    client().create_job_async.call_args[1]['run_context'].Unpack(run_context)
     sweeps = run_context.parameter_sweeps
     assert len(sweeps) == 1
     assert sweeps[0].repetitions == 1
     assert sweeps[0].sweep.single_sweep.points.points == [1, 2]
-    client().get_job.assert_called_once()
-    client().get_job_results.assert_called_once()
+    client().get_job_async.assert_called_once()
+    client().get_job_results_async.assert_called_once()
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_batch(client):
     setup_run_circuit_with_result_(client, _BATCH_RESULTS_V2)
 
@@ -599,10 +591,10 @@ def test_run_batch(client):
         assert results[i].repetitions == 1
         assert results[i].params.param_dict == {'a': v}
         assert results[i].measurements == {'q': np.array([[0]], dtype='uint8')}
-    client().create_program.assert_called_once()
-    client().create_job.assert_called_once()
+    client().create_program_async.assert_called_once()
+    client().create_job_async.assert_called_once()
     run_context = v2.batch_pb2.BatchRunContext()
-    client().create_job.call_args[1]['run_context'].Unpack(run_context)
+    client().create_job_async.call_args[1]['run_context'].Unpack(run_context)
     assert len(run_context.run_contexts) == 2
     for idx, rc in enumerate(run_context.run_contexts):
         sweeps = rc.parameter_sweeps
@@ -612,11 +604,11 @@ def test_run_batch(client):
             assert sweeps[0].sweep.single_sweep.points.points == [1.0, 2.0]
         if idx == 1:
             assert sweeps[0].sweep.single_sweep.points.points == [3.0, 4.0]
-    client().get_job.assert_called_once()
-    client().get_job_results.assert_called_once()
+    client().get_job_async.assert_called_once()
+    client().get_job_results_async.assert_called_once()
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_batch_no_params(client):
     # OK to run with no params, it should use empty sweeps for each
     # circuit.
@@ -626,7 +618,7 @@ def test_run_batch_no_params(client):
     # Validate correct number of params have been created and that they
     # are empty sweeps.
     run_context = v2.batch_pb2.BatchRunContext()
-    client().create_job.call_args[1]['run_context'].Unpack(run_context)
+    client().create_job_async.call_args[1]['run_context'].Unpack(run_context)
     assert len(run_context.run_contexts) == 2
     for rc in run_context.run_contexts:
         sweeps = rc.parameter_sweeps
@@ -665,7 +657,7 @@ def test_bad_sweep_proto():
         program.run_sweep()
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_run_calibration(client):
     setup_run_circuit_with_result_(client, _CALIBRATION_RESULTS_V2)
 
@@ -689,7 +681,7 @@ def test_run_calibration(client):
     assert results[1].error_message == 'Second success'
 
     # assert label is correct
-    client().create_job.assert_called_once_with(
+    client().create_job_async.assert_called_once_with(
         project_id='proj',
         program_id='prog',
         job_id='job-id',
@@ -718,7 +710,7 @@ def test_run_calibration_validation_fails():
         )
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_bad_result_proto(client):
     result = any_pb2.Any()
     result.CopyFrom(_RESULTS_V2)
@@ -745,14 +737,14 @@ def test_get_program():
     assert cg.Engine(project_id='proj').get_program('prog').program_id == 'prog'
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient.list_programs')
-def test_list_programs(list_programs):
+@mock.patch('cirq_google.engine.engine_client.EngineClient.list_programs_async')
+def test_list_programs(list_programs_async):
     prog1 = quantum.QuantumProgram(name='projects/proj/programs/prog-YBGR48THF3JHERZW200804')
     prog2 = quantum.QuantumProgram(name='projects/otherproj/programs/prog-V3ZRTV6TTAFNTYJV200804')
-    list_programs.return_value = [prog1, prog2]
+    list_programs_async.return_value = [prog1, prog2]
 
     result = cg.Engine(project_id='proj').list_programs()
-    list_programs.assert_called_once_with(
+    list_programs_async.assert_called_once_with(
         'proj', created_after=None, created_before=None, has_labels=None
     )
     assert [(p.program_id, p.project_id, p._program) for p in result] == [
@@ -761,23 +753,23 @@ def test_list_programs(list_programs):
     ]
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_create_program(client):
-    client().create_program.return_value = ('prog', quantum.QuantumProgram())
+    client().create_program_async.return_value = ('prog', quantum.QuantumProgram())
     result = cg.Engine(project_id='proj').create_program(_CIRCUIT, 'prog')
-    client().create_program.assert_called_once()
+    client().create_program_async.assert_called_once()
     assert result.program_id == 'prog'
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient.list_jobs')
-def test_list_jobs(list_jobs):
+@mock.patch('cirq_google.engine.engine_client.EngineClient.list_jobs_async')
+def test_list_jobs(list_jobs_async):
     job1 = quantum.QuantumJob(name='projects/proj/programs/prog1/jobs/job1')
     job2 = quantum.QuantumJob(name='projects/proj/programs/prog2/jobs/job2')
-    list_jobs.return_value = [job1, job2]
+    list_jobs_async.return_value = [job1, job2]
 
     ctx = EngineContext()
     result = cg.Engine(project_id='proj', context=ctx).list_jobs()
-    list_jobs.assert_called_once_with(
+    list_jobs_async.assert_called_once_with(
         'proj',
         None,
         created_after=None,
@@ -791,14 +783,14 @@ def test_list_jobs(list_jobs):
     ]
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient.list_processors')
-def test_list_processors(list_processors):
+@mock.patch('cirq_google.engine.engine_client.EngineClient.list_processors_async')
+def test_list_processors(list_processors_async):
     processor1 = quantum.QuantumProcessor(name='projects/proj/processors/xmonsim')
     processor2 = quantum.QuantumProcessor(name='projects/proj/processors/gmonsim')
-    list_processors.return_value = [processor1, processor2]
+    list_processors_async.return_value = [processor1, processor2]
 
     result = cg.Engine(project_id='proj').list_processors()
-    list_processors.assert_called_once_with('proj')
+    list_processors_async.assert_called_once_with('proj')
     assert [p.processor_id for p in result] == ['xmonsim', 'gmonsim']
 
 
@@ -806,7 +798,7 @@ def test_get_processor():
     assert cg.Engine(project_id='proj').get_processor('xmonsim').processor_id == 'xmonsim'
 
 
-@mock.patch('cirq_google.engine.engine_client.EngineClient')
+@mock.patch('cirq_google.engine.engine_client.EngineClient', autospec=True)
 def test_sampler(client):
     setup_run_circuit_with_result_(client, _RESULTS)
 
@@ -820,7 +812,7 @@ def test_sampler(client):
         assert results[i].repetitions == 1
         assert results[i].params.param_dict == {'a': v}
         assert results[i].measurements == {'q': np.array([[0]], dtype='uint8')}
-    assert client().create_program.call_args[0][0] == 'proj'
+    assert client().create_program_async.call_args[0][0] == 'proj'
 
     with cirq.testing.assert_deprecated('sampler', deadline='1.0'):
         _ = engine.sampler(processor_id='tmp')
@@ -829,12 +821,12 @@ def test_sampler(client):
 @mock.patch('cirq_google.cloud.quantum.QuantumEngineServiceClient')
 def test_get_engine(build):
     # Default project id present.
-    with mock.patch('google.auth.default', lambda: (None, 'project!')):
+    with mock.patch('google.auth.default', lambda *args, **kwargs: (None, 'project!')):
         eng = cirq_google.get_engine()
         assert eng.project_id == 'project!'
 
     # Nothing present.
-    with mock.patch('google.auth.default', lambda: (None, None)):
+    with mock.patch('google.auth.default', lambda *args, **kwargs: (None, None)):
         with pytest.raises(EnvironmentError, match='GOOGLE_CLOUD_PROJECT'):
             _ = cirq_google.get_engine()
         _ = cirq_google.get_engine('project!')
